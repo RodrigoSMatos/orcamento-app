@@ -19,7 +19,7 @@ Para gerar um APK e instalar sem cabo: **Build → Build App Bundle(s) / APK(s) 
 ./gradlew :core:test
 ```
 
-São 45 testes: limites de avulsos, sobra da planilha, recorrência, ciclo do cartão, fatura sem contagem dupla, reserva, fechamento e reabertura, investimentos e transações.
+São 54 testes: limites de avulsos, sobra da planilha, recorrência, ciclo do cartão, fatura sem contagem dupla, compras parceladas, reserva, fechamento e reabertura, investimentos e transações.
 
 ## Primeiro uso
 

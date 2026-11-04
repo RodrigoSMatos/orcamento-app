@@ -51,6 +51,7 @@ interface Repositorio {
     fun lancamento(id: Long): Lancamento?
     fun salvarLancamento(l: Lancamento): Long
     fun excluirLancamento(id: Long)
+    fun lancamentosDaCompra(compraId: Long): List<Lancamento>
     fun contarLancamentosDoItem(itemLazerId: Long): Int
     fun contarUsosDoCartao(cartaoId: Long): Int
 

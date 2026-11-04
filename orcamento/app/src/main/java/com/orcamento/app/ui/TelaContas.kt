@@ -253,7 +253,7 @@ private fun LinhaFatura(
                     Rotulo("Compras registradas no cartão")
                     f.compras.forEach { l ->
                         Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp, bottom = 2.dp)) {
-                            Text("${Datas.formatarDiaMes(l.data)}  ${l.descricao}", Modifier.weight(1f),
+                            Text("${Datas.formatarDiaMes(l.data)}  ${l.descricao}" + (l.rotuloParcela?.let { " ($it)" } ?: ""), Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(l.valor.formatar(), style = MaterialTheme.typography.bodySmall)
                         }
@@ -396,7 +396,7 @@ private fun DialogFatura(e: EstadoMes, vm: PrincipalViewModel, f: FaturaCalculad
             style = MaterialTheme.typography.bodySmall, color = Cores.neutra(), modifier = Modifier.padding(vertical = 6.dp))
 
         if (f.compras.isNotEmpty()) Rotulo("Compras (${f.compras.size})")
-        f.compras.forEach { l -> LinhaValor("${Datas.formatarDiaMes(l.data)} ${l.descricao}", l.valor) }
+        f.compras.forEach { l -> LinhaValor("${Datas.formatarDiaMes(l.data)} ${l.descricao}" + (l.rotuloParcela?.let { " ($it)" } ?: ""), l.valor) }
         if (f.compromissos.isNotEmpty()) Rotulo("Compromissos no cartão")
         f.compromissos.forEach { c -> LinhaValor("${Datas.formatarDiaMes(c.dataCobranca)} ${c.nome}", c.valorEfetivo) }
         if (!f.ajuste.ehZero) LinhaValor("Ajuste${f.registro?.observacoes?.let { " ($it)" } ?: ""}", f.ajuste)

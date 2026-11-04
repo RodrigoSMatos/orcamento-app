@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.orcamento.core.Aporte
 import com.orcamento.core.Cartao
 import com.orcamento.core.Compromisso
@@ -30,7 +32,7 @@ import java.time.YearMonth
         ModeloLazerEntity::class, CompromissoEntity::class, ItemLazerEntity::class, LancamentoEntity::class,
         AporteEntity::class, MovimentoReservaEntity::class, FaturaEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class BancoDeDados : RoomDatabase() {
@@ -43,7 +45,18 @@ abstract class BancoDeDados : RoomDatabase() {
             Room.databaseBuilder(context, BancoDeDados::class.java, NOME)
                 // Sem WAL: o arquivo .db fica sempre completo, o que torna o backup por cópia seguro.
                 .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
+                .addMigrations(MIGRACAO_1_2)
                 .build()
+
+        /** v1 → v2: colunas das compras parceladas. Só acrescenta colunas; nenhum dado existente muda. */
+        val MIGRACAO_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lancamentos ADD COLUMN compraId INTEGER")
+                db.execSQL("ALTER TABLE lancamentos ADD COLUMN parcela INTEGER")
+                db.execSQL("ALTER TABLE lancamentos ADD COLUMN totalParcelas INTEGER")
+                db.execSQL("ALTER TABLE lancamentos ADD COLUMN mesFatura INTEGER")
+            }
+        }
     }
 }
 
@@ -127,10 +140,12 @@ class RepositorioRoom(private val banco: BancoDeDados) : Repositorio {
     override fun salvarLancamento(l: Lancamento): Long {
         val e = LancamentoEntity(
             l.id, l.data.paraLong(), l.descricao, l.valor.centavos, l.destino.name, l.itemLazerId, l.categoria, l.cartaoId, l.observacoes,
+            l.compraId, l.parcela, l.totalParcelas, l.mesFatura?.paraInt(),
         )
         return if (l.id == 0L) dao.inserirLancamento(e) else { dao.atualizarLancamento(e); l.id }
     }
     override fun excluirLancamento(id: Long) = dao.excluirLancamento(id)
+    override fun lancamentosDaCompra(compraId: Long) = dao.lancamentosDaCompra(compraId).map { it.paraDominio() }
     override fun contarLancamentosDoItem(itemLazerId: Long) = dao.contarLancamentosDoItem(itemLazerId)
     override fun contarUsosDoCartao(cartaoId: Long) = dao.contarUsosDoCartao(cartaoId)
 
@@ -185,6 +200,7 @@ private fun ItemLazerEntity.paraDominio() = ItemLazer(id, mes.paraMes(), nome, l
 
 internal fun LancamentoEntity.paraDominio() = Lancamento(
     id, data.paraData(), descricao, valor.din(), Destino.valueOf(destino), itemLazerId, categoria, cartaoId, observacoes,
+    compraId, parcela, totalParcelas, mesFatura?.paraMes(),
 )
 
 private fun AporteEntity.paraDominio() = Aporte(id, data.paraData(), valor.din(), descricao)

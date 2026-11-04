@@ -46,14 +46,14 @@ object Backup {
     fun csvDeGastos(dao: FinancasDao): String {
         val cartoes = dao.cartoes().associate { it.id to it.nome }
         val itens = mutableMapOf<Long, String>()
-        val linhas = StringBuilder("Data;Descrição;Valor;Destino;Item de lazer;Categoria;Pagamento;Observações\n")
+        val linhas = StringBuilder("Data;Descrição;Valor;Destino;Item de lazer;Categoria;Pagamento;Parcela;Observações\n")
         for (e in dao.todosLancamentos()) {
             val l = e.paraDominio()
             val item = l.itemLazerId?.let { id -> itens.getOrPut(id) { dao.itemLazer(id)?.nome ?: "" } } ?: ""
             linhas.append(
                 listOf(
                     Datas.formatar(l.data), l.descricao, Dinheiro(l.valor.centavos).paraCampo(), l.destino.rotulo, item,
-                    l.categoria ?: "", l.cartaoId?.let { cartoes[it] ?: "Cartão" } ?: "Pix/débito/dinheiro", l.observacoes ?: "",
+                    l.categoria ?: "", l.cartaoId?.let { cartoes[it] ?: "Cartão" } ?: "Pix/débito/dinheiro", l.rotuloParcela ?: "", l.observacoes ?: "",
                 ).joinToString(";") { campo -> "\"" + campo.replace("\"", "\"\"") + "\"" },
             ).append('\n')
         }

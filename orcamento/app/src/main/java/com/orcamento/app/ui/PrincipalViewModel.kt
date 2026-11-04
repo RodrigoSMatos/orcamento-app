@@ -9,6 +9,7 @@ import com.orcamento.app.data.Backup
 import com.orcamento.app.data.paraDominio
 import com.orcamento.core.Aporte
 import com.orcamento.core.Cartao
+import com.orcamento.core.CompraParcelada
 import com.orcamento.core.Dinheiro
 import com.orcamento.core.ItemLazer
 import com.orcamento.core.Lancamento
@@ -153,6 +154,19 @@ class PrincipalViewModel(application: Application) : AndroidViewModel(applicatio
             } else {
                 _mensagens.emit(erro)
             }
+        }
+    }
+
+    /** Carrega uma compra parcelada e os itens de lazer do mês da compra (para editar a partir de qualquer parcela). */
+    fun carregarCompra(compraId: Long, aoCarregar: (CompraParcelada, List<ItemLazer>) -> Unit) {
+        viewModelScope.launch {
+            val r = withContext(app.dispatcherBanco) {
+                runCatching {
+                    val c = app.servico.compraParcelada(compraId) ?: return@runCatching null
+                    c to app.servico.itensLazer(YearMonth.from(c.dataCompra))
+                }.getOrNull()
+            }
+            if (r != null) aoCarregar(r.first, r.second) else _mensagens.emit("Não foi possível carregar a compra parcelada.")
         }
     }
 

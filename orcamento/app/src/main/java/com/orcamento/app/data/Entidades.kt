@@ -109,6 +109,11 @@ data class LancamentoEntity(
     val categoria: String?,
     val cartaoId: Long?,
     val observacoes: String?,
+    // Versão 2 do banco: compras parceladas
+    val compraId: Long? = null,
+    val parcela: Int? = null,
+    val totalParcelas: Int? = null,
+    val mesFatura: Int? = null,
 )
 
 @Entity(tableName = "aportes", indices = [Index("data")])

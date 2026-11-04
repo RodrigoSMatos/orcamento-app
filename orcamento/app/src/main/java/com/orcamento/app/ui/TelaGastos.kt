@@ -32,7 +32,7 @@ import com.orcamento.core.Lancamento
 import com.orcamento.core.somarDinheiro
 import java.time.format.TextStyle
 
-private enum class Filtro(val rotulo: String) { TODOS("Todos"), AVULSOS("Avulsos"), LAZER("Lazer"), CARTAO("No cartão") }
+private enum class Filtro(val rotulo: String) { TODOS("Todos"), AVULSOS("Avulsos"), LAZER("Lazer"), CARTAO("No cartão"), PARCELADOS("Parcelados") }
 
 @Composable
 fun TelaGastos(e: EstadoMes, vm: PrincipalViewModel, abrirGasto: (Lancamento?) -> Unit) {
@@ -84,6 +84,7 @@ fun TelaGastos(e: EstadoMes, vm: PrincipalViewModel, abrirGasto: (Lancamento?) -
                 Filtro.AVULSOS -> l.destino == Destino.AVULSO
                 Filtro.LAZER -> l.destino == Destino.LAZER
                 Filtro.CARTAO -> l.cartaoId != null
+                Filtro.PARCELADOS -> l.ehParcela
             } && (categoria == null || l.categoria == categoria)
         }
 

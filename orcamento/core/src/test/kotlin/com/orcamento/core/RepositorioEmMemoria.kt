@@ -83,6 +83,7 @@ class RepositorioEmMemoria : Repositorio {
     override fun lancamento(id: Long) = d.lancamentos[id]
     override fun salvarLancamento(l: Lancamento): Long { val id = idOuNovo(l.id); d.lancamentos[id] = l.copy(id = id); return id }
     override fun excluirLancamento(id: Long) { d.lancamentos.remove(id) }
+    override fun lancamentosDaCompra(compraId: Long) = d.lancamentos.values.filter { it.compraId == compraId }.sortedBy { it.parcela }
     override fun contarLancamentosDoItem(itemLazerId: Long) = d.lancamentos.values.count { it.itemLazerId == itemLazerId }
     override fun contarUsosDoCartao(cartaoId: Long) =
         d.lancamentos.values.count { it.cartaoId == cartaoId } + d.compromissos.values.count { it.cartaoId == cartaoId } +
