@@ -169,8 +169,48 @@ data class Lancamento(
     /** Null = pago na hora (Pix, débito, dinheiro). Preenchido = compra no cartão. */
     val cartaoId: Long? = null,
     val observacoes: String? = null,
+    /** Identifica a compra parcelada a que esta parcela pertence (id da 1ª parcela). Null = gasto comum. */
+    val compraId: Long? = null,
+    /** Número desta parcela (1, 2, 3…). */
+    val parcela: Int? = null,
+    val totalParcelas: Int? = null,
+    /** Mês da fatura em que esta parcela é cobrada (parcela 1 na fatura da compra, parcela 2 na seguinte…). */
+    val mesFatura: YearMonth? = null,
 ) {
     val mes: YearMonth get() = YearMonth.from(data)
+    val ehParcela: Boolean get() = compraId != null
+    /** "2/5" para parcelas; null para gastos comuns. */
+    val rotuloParcela: String? get() = if (parcela != null && totalParcelas != null) "$parcela/$totalParcelas" else null
+}
+
+/** Limites de parcelamento aceitos. */
+const val MIN_PARCELAS = 2
+const val MAX_PARCELAS = 48
+
+/**
+ * Uma compra no cartão dividida em parcelas. Não é guardada como registro próprio:
+ * vira um Lancamento por parcela, cada um no seu mês, ligados pelo mesmo compraId.
+ */
+data class CompraParcelada(
+    /** Null = compra nova. */
+    val compraId: Long? = null,
+    val dataCompra: LocalDate,
+    val descricao: String,
+    val valorTotal: Dinheiro,
+    val parcelas: Int,
+    val cartaoId: Long,
+    val destino: Destino = Destino.AVULSO,
+    /** Item de lazer do mês da compra; nos meses seguintes usa o item equivalente (mesmo modelo ou mesmo nome). */
+    val itemLazerId: Long? = null,
+    val categoria: String? = null,
+    val observacoes: String? = null,
+) {
+    /** Valores das parcelas. A divisão não exata vai para a 1ª parcela (ex.: R$ 100 em 3x = 33,34 + 33,33 + 33,33). */
+    fun valoresDasParcelas(): List<Dinheiro> {
+        val base = valorTotal.centavos / parcelas
+        val resto = valorTotal.centavos - base * parcelas
+        return List(parcelas) { i -> Dinheiro(if (i == 0) base + resto else base) }
+    }
 }
 
 /** Dinheiro efetivamente investido. Não é gasto de consumo. */

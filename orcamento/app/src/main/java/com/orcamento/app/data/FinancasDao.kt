@@ -66,6 +66,7 @@ interface FinancasDao {
     @Update fun atualizarLancamento(l: LancamentoEntity)
     @Query("DELETE FROM lancamentos WHERE id = :id") fun excluirLancamento(id: Long)
     @Query("SELECT COUNT(*) FROM lancamentos WHERE itemLazerId = :itemId") fun contarLancamentosDoItem(itemId: Long): Int
+    @Query("SELECT * FROM lancamentos WHERE compraId = :compraId ORDER BY parcela") fun lancamentosDaCompra(compraId: Long): List<LancamentoEntity>
 
     @Query(
         "SELECT * FROM lancamentos WHERE descricao LIKE '%' || :texto || '%' OR categoria LIKE '%' || :texto || '%' " +

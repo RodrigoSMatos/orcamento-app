@@ -351,6 +351,118 @@ class ServicoFinanceiroTest {
         assertTrue(s.fatura(nubank, out).pago)
     }
 
+    // ───────── Compras parceladas ─────────
+
+    private fun nubank() = s.salvarCartao(Cartao(nome = "Nubank", diaFechamento = 3, diaVencimento = 10))
+
+    private fun parcelada(cartao: Long, total: String, n: Int, data: LocalDate = out.atDay(5), desc: String = "Tênis",
+                          destino: Destino = Destino.AVULSO, item: Long? = null, id: Long? = null) =
+        s.salvarCompraParcelada(CompraParcelada(compraId = id, dataCompra = data, descricao = desc, valorTotal = r(total),
+            parcelas = n, cartaoId = cartao, destino = destino, itemLazerId = item))
+
+    @Test fun parcelaEntraUmaPorMesNoOrcamentoENaFatura() {
+        s.salvarPlanoPadrao(PlanoPadrao(renda = r("2000"), limiteAvulsos = r("300")))
+        val c = nubank()
+        parcelada(c, "300", 3) // 05/10, fecha dia 3 → 1ª parcela na fatura de novembro
+        val dez = YearMonth.of(2026, 12); val jan = YearMonth.of(2027, 1)
+        assertEquals(r("100"), s.resumo(out).avulsos.gasto)
+        assertEquals(r("100"), s.resumo(nov).avulsos.gasto)
+        assertEquals(r("100"), s.resumo(dez).avulsos.gasto)
+        assertEquals(Dinheiro.ZERO, s.resumo(jan).avulsos.gasto)
+        assertEquals(r("100"), s.fatura(c, nov).totalCalculado)
+        assertEquals(r("100"), s.fatura(c, dez).totalCalculado)
+        assertEquals(r("100"), s.fatura(c, jan).totalCalculado)
+        assertEquals(Dinheiro.ZERO, s.fatura(c, YearMonth.of(2027, 2)).totalCalculado)
+        assertEquals(listOf("1/3", "2/3", "3/3"), s.fatura(c, nov).compras.map { it.rotuloParcela } +
+            s.fatura(c, dez).compras.map { it.rotuloParcela } + s.fatura(c, jan).compras.map { it.rotuloParcela })
+        // pagar a fatura não cria gasto novo
+        s.pagarFatura(c, nov)
+        assertEquals(r("100"), s.resumo(nov).avulsos.gasto)
+    }
+
+    @Test fun parcelasNaoExatasSobramNaPrimeira() {
+        val c = nubank()
+        val id = parcelada(c, "100", 3)
+        assertEquals(listOf(r("33,34"), r("33,33"), r("33,33")), s.parcelasDaCompra(id).map { it.valor })
+        assertEquals(r("100"), s.compraParcelada(id)!!.valorTotal)
+    }
+
+    @Test fun parcelaDeFimDeMesNaoPulaFatura() {
+        val c = s.salvarCartao(Cartao(nome = "Fim", diaFechamento = 30, diaVencimento = 8))
+        val id = parcelada(c, "300", 3, data = LocalDate.of(2026, 10, 31))
+        val meses = s.parcelasDaCompra(id).map { it.mesFatura }
+        assertEquals(listOf(YearMonth.of(2026, 12), YearMonth.of(2027, 1), YearMonth.of(2027, 2)), meses)
+        assertEquals(listOf(LocalDate.of(2026, 10, 31), LocalDate.of(2026, 11, 30), LocalDate.of(2026, 12, 31)), s.parcelasDaCompra(id).map { it.data })
+    }
+
+    @Test fun validacoesDaCompraParcelada() {
+        val c = nubank()
+        esperaFalha("parcelas deve") { parcelada(c, "100", 1) }
+        esperaFalha("parcelas deve") { parcelada(c, "100", 49) }
+        esperaFalha("pequeno demais") { parcelada(c, "0,02", 3) }
+        esperaFalha("cartão") { parcelada(999, "100", 2) }
+        esperaFalha("descrição") { parcelada(c, "100", 2, desc = " ") }
+    }
+
+    @Test fun parcelaNaoSeEditaSozinha() {
+        val c = nubank()
+        val id = parcelada(c, "300", 3)
+        val segunda = s.parcelasDaCompra(id)[1]
+        esperaFalha("compra parcelada inteira") { s.salvarLancamento(segunda.copy(valor = r("1"))) }
+        esperaFalha("compra parcelada inteira") { s.excluirLancamento(segunda.id) }
+        // gasto comum não pode virar parcela por fora
+        val comum = s.salvarLancamento(Lancamento(data = out.atDay(1), descricao = "x", valor = r("10"), compraId = id, parcela = 9))
+        assertNull(repo.lancamento(comum)!!.compraId)
+    }
+
+    @Test fun editarEExcluirACompraInteira() {
+        val c = nubank()
+        val id = parcelada(c, "300", 3)
+        val novoId = parcelada(c, "500", 5, id = id, desc = "Tênis corrida")
+        assertTrue(repo.lancamentosDaCompra(id).isEmpty())
+        val compra = s.compraParcelada(novoId)!!
+        assertEquals(r("500"), compra.valorTotal)
+        assertEquals(5, compra.parcelas)
+        assertEquals("Tênis corrida", compra.descricao)
+        assertEquals(5, s.parcelasDaCompra(novoId).size)
+        s.excluirCompraParcelada(novoId)
+        assertTrue(s.parcelasDaCompra(novoId).isEmpty())
+        assertEquals(Dinheiro.ZERO, s.resumo(out).avulsos.gasto)
+    }
+
+    @Test fun parcelaEmMesFechadoBloqueia() {
+        hoje = LocalDate.of(2026, 9, 30)
+        s.garantirMes(set)
+        val c = nubank()
+        val id = parcelada(c, "300", 3, data = set.atDay(20))
+        s.fecharMes(set, Dinheiro.ZERO)
+        hoje = LocalDate.of(2026, 10, 20)
+        esperaFalha("fechado") { parcelada(c, "600", 3, data = set.atDay(20), id = id) }
+        esperaFalha("fechado") { s.excluirCompraParcelada(id) }
+        esperaFalha("mês fechado") { parcelada(c, "200", 2, data = set.atDay(25)) }
+        assertEquals(3, s.parcelasDaCompra(id).size) // nada mudou
+    }
+
+    @Test fun parcelaDeLazerUsaOItemEquivalenteDeCadaMes() {
+        s.salvarModeloLazer(ModeloLazer(nome = "Shows", valor = r("200")))
+        s.garantirMes(out)
+        val c = nubank()
+        val itemOut = repo.itensLazer(out).single().id
+        val id = parcelada(c, "300", 2, desc = "Ingresso", destino = Destino.LAZER, item = itemOut)
+        assertEquals(r("150"), s.resumo(out).lazer.gasto)
+        assertEquals(r("150"), s.resumo(nov).lazer.gasto)
+        val itemNov = repo.itensLazer(nov).single().id
+        assertEquals(itemNov, s.parcelasDaCompra(id)[1].itemLazerId)
+    }
+
+    @Test fun parcelaDeLazerSemItemNoMesSeguinteFalhaSemGravarNada() {
+        s.garantirMes(out)
+        val item = s.salvarItemLazer(ItemLazer(mes = out, nome = "Show único", limite = r("200")))
+        val c = nubank()
+        esperaFalha("não tem o item") { parcelada(c, "300", 2, destino = Destino.LAZER, item = item) }
+        assertEquals(Dinheiro.ZERO, s.resumo(out).lazer.gasto)
+    }
+
     @Test fun cartaoEmUsoNaoPodeSerExcluido() {
         val c = s.salvarCartao(Cartao(nome = "Nubank", diaFechamento = 3, diaVencimento = 10))
         gasto(1, "x", "1", cartao = c)

@@ -148,6 +148,7 @@ fun LinhaGasto(l: Lancamento, e: EstadoMes, modifier: Modifier = Modifier, mostr
                 Spacer(Modifier.width(6.dp))
                 Etiqueta(if (l.destino == Destino.LAZER) "Lazer" + (e.nomeItemLazer(l.itemLazerId)?.let { " · $it" } ?: "") else "Avulso")
                 l.cartaoId?.let { Spacer(Modifier.width(4.dp)); Etiqueta("Cartão ${e.nomeCartao(it) ?: ""}") }
+                l.rotuloParcela?.let { Spacer(Modifier.width(4.dp)); Etiqueta("Parcela $it") }
                 l.categoria?.let { Spacer(Modifier.width(4.dp)); Etiqueta(it) }
             }
         }

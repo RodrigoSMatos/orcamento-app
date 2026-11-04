@@ -72,6 +72,19 @@ Regra: **a compra é o gasto; pagar a fatura é só quitar a dívida.**
 - A fatura nunca entra em "gastos" nem na sobra do mês.
 - **Sem integração bancária.** A fatura do app é a soma do que foi registrado. Se o valor do banco for diferente, a diferença vai no ajuste.
 
+## 6.1 Compras parceladas no cartão
+
+- No formulário de gasto, com pagamento no cartão, ligue **Parcelado** e informe o **valor total** e o **número de parcelas** (2 a 48).
+- O app cria uma parcela por mês, ligadas entre si:
+  - **Orçamento:** a parcela *i* conta como gasto (avulso ou lazer) no **mês da compra + i**. Uma compra de R$ 300 em 3x em outubro gasta R$ 100 em outubro, novembro e dezembro, sem inflar o mês da compra.
+  - **Fatura:** a parcela 1 entra na fatura da data da compra (pela regra do fechamento); a parcela *i* entra *i* faturas depois.
+  - **Valor:** total ÷ parcelas; os centavos que sobram ficam na 1ª parcela (R$ 100 em 3x = 33,34 + 33,33 + 33,33).
+- Pagar a fatura não cria gasto novo: cada parcela é contada uma vez, no seu mês.
+- Parcela de lazer usa, em cada mês, o item de lazer equivalente (mesmo item padrão ou mesmo nome). Se algum mês não tiver o item, a compra não é gravada e o app avisa.
+- Uma parcela não se edita nem se exclui sozinha: abrir qualquer parcela edita **a compra inteira** (as parcelas são refeitas).
+- Se alguma parcela estiver num **mês fechado**, a compra não pode ser criada, alterada nem excluída. Reabra o mês antes.
+- Só compras novas podem ser parceladas; um gasto já registrado à vista não vira parcelado (exclua e lance de novo).
+
 ## 7. Recorrência e meses
 
 - Cada mês tem **sua própria cópia** do plano (renda, limite de avulsos, meta) e dos compromissos e itens de lazer.

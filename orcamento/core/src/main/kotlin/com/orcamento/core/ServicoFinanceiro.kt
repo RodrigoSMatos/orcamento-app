@@ -130,6 +130,7 @@ class ServicoFinanceiro(
         exigirAberto(l.mes)
         if (l.id != 0L) {
             val antigo = repo.lancamento(l.id) ?: throw RegraViolada("Gasto não encontrado.")
+            if (antigo.ehParcela) throw RegraViolada("Esta é uma parcela. Edite a compra parcelada inteira.")
             exigirAberto(antigo.mes)
         }
         val itemId = when (l.destino) {
@@ -147,14 +148,115 @@ class ServicoFinanceiro(
                 itemLazerId = itemId,
                 categoria = l.categoria?.trim()?.ifEmpty { null },
                 observacoes = l.observacoes?.trim()?.ifEmpty { null },
+                // Parcelas só são criadas por salvarCompraParcelada.
+                compraId = null, parcela = null, totalParcelas = null, mesFatura = null,
             ),
         )
     }
 
     fun excluirLancamento(id: Long) = repo.transacao {
         val l = repo.lancamento(id) ?: return@transacao
+        if (l.ehParcela) throw RegraViolada("Esta é uma parcela. Exclua a compra parcelada inteira.")
         exigirAberto(l.mes)
         repo.excluirLancamento(id)
+    }
+
+    // ───────────────────────── Compras parceladas ─────────────────────────
+
+    /** Remonta a compra a partir das parcelas gravadas. */
+    fun compraParcelada(compraId: Long): CompraParcelada? {
+        val parcelas = repo.lancamentosDaCompra(compraId).sortedBy { it.parcela }
+        val primeira = parcelas.firstOrNull() ?: return null
+        return CompraParcelada(
+            compraId = compraId,
+            dataCompra = primeira.data,
+            descricao = primeira.descricao,
+            valorTotal = parcelas.somarDinheiro { it.valor },
+            parcelas = primeira.totalParcelas ?: parcelas.size,
+            cartaoId = primeira.cartaoId ?: 0,
+            destino = primeira.destino,
+            itemLazerId = primeira.itemLazerId,
+            categoria = primeira.categoria,
+            observacoes = primeira.observacoes,
+        )
+    }
+
+    fun parcelasDaCompra(compraId: Long): List<Lancamento> = repo.lancamentosDaCompra(compraId).sortedBy { it.parcela }
+
+    /**
+     * Cria (ou refaz, se compraId vier preenchido) uma compra parcelada no cartão.
+     * Parcela i entra como gasto no mês da compra + i (consome o orçamento daquele mês)
+     * e é cobrada na fatura da compra + i. Nada é contado duas vezes: a fatura apenas soma as parcelas.
+     * Todas as parcelas precisam cair em meses abertos.
+     */
+    fun salvarCompraParcelada(c: CompraParcelada): Long = repo.transacao {
+        val descricao = c.descricao.trim()
+        if (descricao.isEmpty()) throw RegraViolada("Informe a descrição da compra.")
+        if (c.parcelas !in MIN_PARCELAS..MAX_PARCELAS) throw RegraViolada("O número de parcelas deve ser de $MIN_PARCELAS a $MAX_PARCELAS.")
+        if (c.valorTotal.centavos < c.parcelas) throw RegraViolada("O valor total é pequeno demais para ${c.parcelas} parcelas.")
+        val cartao = repo.cartao(c.cartaoId) ?: throw RegraViolada("Compra parcelada precisa de um cartão.")
+
+        val datas = List(c.parcelas) { i -> c.dataCompra.plusMonths(i.toLong()) }
+        datas.map { YearMonth.from(it) }.forEach { mes ->
+            if (estaFechado(mes)) throw RegraViolada("A parcela de ${Datas.formatarMes(mes)} cairia num mês fechado. Reabra o mês para continuar.")
+        }
+
+        // Itens de lazer de cada mês
+        val itens: List<Long?> = when (c.destino) {
+            Destino.AVULSO -> List(c.parcelas) { null }
+            Destino.LAZER -> {
+                val referencia = c.itemLazerId?.let { repo.itemLazer(it) } ?: throw RegraViolada("Escolha em qual item de lazer esta compra entra.")
+                if (referencia.mes != YearMonth.from(c.dataCompra)) throw RegraViolada("O item de lazer escolhido é de outro mês.")
+                datas.map { d ->
+                    val mes = YearMonth.from(d)
+                    garantirMes(mes)
+                    val doMes = repo.itensLazer(mes)
+                    val equivalente = doMes.firstOrNull { it.id == referencia.id }
+                        ?: referencia.modeloId?.let { mid -> doMes.firstOrNull { it.modeloId == mid } }
+                        ?: doMes.firstOrNull { it.nome.equals(referencia.nome, ignoreCase = true) }
+                        ?: throw RegraViolada("${Datas.formatarMes(mes)} não tem o item de lazer \"${referencia.nome}\". Crie o item nesse mês ou lance em avulsos.")
+                    equivalente.id
+                }
+            }
+        }
+
+        // Ao editar, as parcelas antigas são substituídas (todas precisam estar em meses abertos)
+        if (c.compraId != null) {
+            val antigas = repo.lancamentosDaCompra(c.compraId)
+            if (antigas.isEmpty()) throw RegraViolada("Compra não encontrada.")
+            antigas.firstOrNull { estaFechado(it.mes) }?.let {
+                throw RegraViolada("A parcela ${it.rotuloParcela} está em ${Datas.formatarMes(it.mes)}, que já foi fechado. Não é possível alterar esta compra.")
+            }
+            antigas.forEach { repo.excluirLancamento(it.id) }
+        }
+
+        datas.forEach { garantirMes(YearMonth.from(it)) }
+        val mesFatura1 = CicloCartao.mesDaFatura(cartao, c.dataCompra)
+        val valores = c.valoresDasParcelas()
+        var compraId = 0L
+        datas.forEachIndexed { i, d ->
+            val parcela = Lancamento(
+                data = d, descricao = descricao, valor = valores[i], destino = c.destino, itemLazerId = itens[i],
+                categoria = c.categoria?.trim()?.ifEmpty { null }, cartaoId = cartao.id,
+                observacoes = c.observacoes?.trim()?.ifEmpty { null },
+                compraId = if (i == 0) null else compraId, parcela = i + 1, totalParcelas = c.parcelas,
+                mesFatura = mesFatura1.plusMonths(i.toLong()),
+            )
+            val id = repo.salvarLancamento(parcela)
+            if (i == 0) {
+                compraId = id
+                repo.salvarLancamento(parcela.copy(id = id, compraId = id))
+            }
+        }
+        compraId
+    }
+
+    fun excluirCompraParcelada(compraId: Long) = repo.transacao {
+        val parcelas = repo.lancamentosDaCompra(compraId)
+        parcelas.firstOrNull { estaFechado(it.mes) }?.let {
+            throw RegraViolada("A parcela ${it.rotuloParcela} está em ${Datas.formatarMes(it.mes)}, que já foi fechado. Reabra o mês para excluir a compra.")
+        }
+        parcelas.forEach { repo.excluirLancamento(it.id) }
     }
 
     // ───────────────────────── Compromissos ─────────────────────────
@@ -448,7 +550,7 @@ class ServicoFinanceiro(
     private fun fatura(cartao: Cartao, mes: YearMonth): FaturaCalculada {
         val (de, ate) = CicloCartao.janelaDeBusca(mes)
         val compras = repo.lancamentos(de, ate)
-            .filter { it.cartaoId == cartao.id && CicloCartao.mesDaFatura(cartao, it.data) == mes }
+            .filter { it.cartaoId == cartao.id && (it.mesFatura ?: CicloCartao.mesDaFatura(cartao, it.data)) == mes }
             .sortedBy { it.data }
         val compromissos = repo.compromissosEntre(mes.minusMonths(2), mes)
             .filter { it.cartaoId == cartao.id && CicloCartao.mesDaFatura(cartao, it.dataCobranca) == mes }
