@@ -63,6 +63,12 @@ Regra: **a compra é o gasto; pagar a fatura é só quitar a dívida.**
 - A **fatura** é calculada pela soma das compras e compromissos do cartão naquele ciclo, mais um **ajuste** manual (anuidade, parcelas antigas, estornos).
 - Ciclo: compra **antes** do dia de fechamento entra na fatura que fecha nesse mês. Compra **no dia do fechamento ou depois** entra na seguinte. A fatura vence no primeiro dia de vencimento após o fechamento.
 - **Contas a pagar** (visão de caixa) = compromissos pagos direto da conta + faturas que vencem no mês. Compromissos no cartão não aparecem ali separados, porque já estão dentro da fatura.
+- Na aba Contas, os compromissos no cartão ficam **dentro da fatura** (toque na fatura para abrir a lista).
+  - **Marcar a fatura como paga** marca como pagos todos os compromissos dela, com a data do pagamento. Os que já estavam marcados mantêm a data e o valor que tinham.
+  - **Desfazer o pagamento da fatura** desmarca os compromissos dela.
+  - Cada compromisso pode ser marcado ou desmarcado individualmente dentro da lista, sem mudar a situação da fatura.
+  - Compromissos de meses fechados não são alterados por essas ações.
+  - Compromissos do mês que caem numa fatura de outro mês aparecem numa seção à parte, só para consulta.
 - A fatura nunca entra em "gastos" nem na sobra do mês.
 - **Sem integração bancária.** A fatura do app é a soma do que foi registrado. Se o valor do banco for diferente, a diferença vai no ajuste.
 
@@ -131,4 +137,3 @@ Definir a meta não registra aporte. Aporte não é gasto de consumo: a meta já
 - **Sobra de avulsos** no fechamento não vai para a reserva, que é só de lazer, como você descreveu. A sobra de avulsos fica registrada no histórico do mês.
 - **Sobra livre do mês** não é acumulada em lugar nenhum. O app não controla o saldo bancário.
 - **Ajuste de fatura** entra só na visão de caixa. Se for um gasto real (ex.: juros), registre como gasto no cartão para ele entrar no orçamento.
-- **Pagamento de compromisso no cartão** é marcado como "cobrança conferida".

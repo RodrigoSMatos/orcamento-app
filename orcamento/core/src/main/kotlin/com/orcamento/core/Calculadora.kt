@@ -67,6 +67,7 @@ data class FaturaCalculada(
     /** Diferença entre o que foi pago e o calculado (ex.: compra lançada depois do pagamento). */
     val diferencaAposPagamento: Dinheiro get() = if (pago) totalCalculado - valorDevido else Dinheiro.ZERO
     val temConteudo: Boolean get() = compras.isNotEmpty() || compromissos.isNotEmpty() || !ajuste.ehZero || pago
+    val compromissosPagos: Int get() = compromissos.count { it.pago }
 }
 
 enum class TipoConta { COMPROMISSO, FATURA }

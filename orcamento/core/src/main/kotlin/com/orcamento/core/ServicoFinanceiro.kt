@@ -456,19 +456,31 @@ class ServicoFinanceiro(
         return FaturaCalculada(cartao, mes, repo.fatura(cartao.id, mes), compras, compromissos)
     }
 
+    /**
+     * Paga a fatura e marca como pagos todos os compromissos que estão nela (numa ação só).
+     * Compromissos já marcados mantêm a data e o valor que tinham. Compromissos de meses fechados não são tocados.
+     */
     fun pagarFatura(cartaoId: Long, mes: YearMonth, data: LocalDate? = null, valor: Dinheiro? = null) = repo.transacao {
         exigirAberto(mes)
         val f = fatura(cartaoId, mes)
         val pago = valor ?: f.totalCalculado
         if (!pago.ehPositivo) throw RegraViolada("O valor pago precisa ser maior que zero.")
+        val dataPagamento = data ?: hoje()
         val base = f.registro ?: Fatura(cartaoId = cartaoId, mesVencimento = mes)
-        repo.salvarFatura(base.copy(pago = true, dataPagamento = data ?: hoje(), valorPago = pago))
+        repo.salvarFatura(base.copy(pago = true, dataPagamento = dataPagamento, valorPago = pago))
+        f.compromissos.filter { !it.pago && !estaFechado(it.mes) }.forEach {
+            repo.salvarCompromisso(it.copy(pago = true, dataPagamento = dataPagamento, valorPago = it.valorPlanejado))
+        }
     }
 
+    /** Desfaz o pagamento da fatura e desmarca os compromissos dela (exceto os de meses fechados). */
     fun desfazerPagamentoFatura(cartaoId: Long, mes: YearMonth) = repo.transacao {
         exigirAberto(mes)
         val registro = repo.fatura(cartaoId, mes) ?: return@transacao
         repo.salvarFatura(registro.copy(pago = false, dataPagamento = null, valorPago = null))
+        fatura(cartaoId, mes).compromissos.filter { it.pago && !estaFechado(it.mes) }.forEach {
+            repo.salvarCompromisso(it.copy(pago = false, dataPagamento = null, valorPago = null))
+        }
     }
 
     /** Ajuste da fatura: valores no cartão que não são gastos lançados no app. Pode ser negativo (estorno). */
