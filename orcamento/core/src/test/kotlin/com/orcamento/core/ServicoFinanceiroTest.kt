@@ -313,6 +313,44 @@ class ServicoFinanceiroTest {
         assertEquals(r("312,90"), contas.pendente)
     }
 
+    @Test fun pagarFaturaMarcaOsItensDelaEDesfazerDesmarca() {
+        s.garantirMes(out)
+        val nubank = s.salvarCartao(Cartao(nome = "Nubank", diaFechamento = 3, diaVencimento = 10))
+        modelo("Conta Vivo", "143", dia = 15, cartao = nubank)       // fatura de novembro
+        modelo("Faculdade", "649", dia = 20, cartao = nubank)        // fatura de novembro
+        modelo("Cabelo", "75", dia = 25)                             // direto da conta, não é da fatura
+        gasto(5, "Camiseta", "50", cartao = nubank)
+        val vivo = repo.compromissos(out).single { it.nome == "Conta Vivo" }
+        s.marcarPago(vivo.id, LocalDate.of(2026, 10, 16), r("150"))  // conferido antes, com valor diferente
+
+        s.pagarFatura(nubank, nov, LocalDate.of(2026, 11, 10))
+        val doMes = repo.compromissos(out).associateBy { it.nome }
+        assertTrue(doMes["Faculdade"]!!.pago)
+        assertEquals(LocalDate.of(2026, 11, 10), doMes["Faculdade"]!!.dataPagamento)
+        assertEquals(r("150"), doMes["Conta Vivo"]!!.valorPago)                    // manteve o que já tinha
+        assertEquals(LocalDate.of(2026, 10, 16), doMes["Conta Vivo"]!!.dataPagamento)
+        assertFalse(doMes["Cabelo"]!!.pago)                                       // não é da fatura
+        val f = s.fatura(nubank, nov)
+        assertEquals(2, f.compromissosPagos)
+        assertEquals(r("849"), f.totalCalculado)                                  // 150 + 649 + 50: nada contado duas vezes
+
+        s.desfazerPagamentoFatura(nubank, nov)
+        assertFalse(s.fatura(nubank, nov).pago)
+        assertTrue(repo.compromissos(out).filter { it.noCartao }.none { it.pago })
+    }
+
+    @Test fun pagarFaturaNaoMexeEmMesFechado() {
+        hoje = LocalDate.of(2026, 9, 30)
+        s.garantirMes(set)
+        val nubank = s.salvarCartao(Cartao(nome = "Nubank", diaFechamento = 3, diaVencimento = 10))
+        modelo("Conta Vivo", "143", dia = 15, inicio = set, cartao = nubank)    // setembro → fatura de outubro
+        s.fecharMes(set, Dinheiro.ZERO)
+        hoje = LocalDate.of(2026, 10, 10)
+        s.pagarFatura(nubank, out)
+        assertFalse(repo.compromissos(set).single().pago)
+        assertTrue(s.fatura(nubank, out).pago)
+    }
+
     @Test fun cartaoEmUsoNaoPodeSerExcluido() {
         val c = s.salvarCartao(Cartao(nome = "Nubank", diaFechamento = 3, diaVencimento = 10))
         gasto(1, "x", "1", cartao = c)

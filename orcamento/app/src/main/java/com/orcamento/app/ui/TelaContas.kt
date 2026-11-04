@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -22,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,7 +52,10 @@ fun TelaContas(e: EstadoMes, vm: PrincipalViewModel) {
     var editando by remember { mutableStateOf<Compromisso?>(null) }
     var novo by remember { mutableStateOf(false) }
     var faturaAberta by remember { mutableStateOf<FaturaCalculada?>(null) }
-    val noCartao = r.compromissos.filter { it.noCartao }
+    val expandidas = remember { mutableStateMapOf<Long, Boolean>() }
+    // Itens do mês no cartão que caem numa fatura de outro mês (não aparecem dentro das faturas listadas acima)
+    val idsNasFaturas = c.itens.mapNotNull { it.fatura }.flatMap { f -> f.compromissos.map { it.id } }.toSet()
+    val emOutrasFaturas = r.compromissos.filter { it.noCartao && it.id !in idsNasFaturas }
 
     LazyColumn {
         item { CabecalhoMes(e, vm) }
@@ -83,6 +89,26 @@ fun TelaContas(e: EstadoMes, vm: PrincipalViewModel) {
                 }
                 c.itens.forEachIndexed { i, item ->
                     if (i > 0) HorizontalDivider()
+                    if (item.tipo == TipoConta.FATURA) {
+                        val f = item.fatura!!
+                        val cartaoId = f.cartao.id
+                        LinhaFatura(
+                            item, f, e.fechado,
+                            expandida = expandidas[cartaoId] == true,
+                            aoExpandir = { expandidas[cartaoId] = expandidas[cartaoId] != true },
+                            aoAlternarFatura = { marcar ->
+                                if (marcar) vm.executar("Fatura paga. Itens dela marcados como pagos.") { pagarFatura(cartaoId, f.mesVencimento) }
+                                else vm.executar("Pagamento da fatura desfeito.") { desfazerPagamentoFatura(cartaoId, f.mesVencimento) }
+                            },
+                            aoAlternarItem = { comp, marcar ->
+                                if (marcar) vm.executar("${comp.nome} marcado como pago.") { marcarPago(comp.id) }
+                                else vm.executar("Pagamento desfeito.") { desmarcarPago(comp.id) }
+                            },
+                            aoEditarItem = { editando = it },
+                            aoDetalhes = { faturaAberta = f },
+                        )
+                        return@forEachIndexed
+                    }
                     LinhaConta(
                         item, e.fechado,
                         aoAlternar = { marcar ->
@@ -110,25 +136,20 @@ fun TelaContas(e: EstadoMes, vm: PrincipalViewModel) {
             }
         }
 
-        if (noCartao.isNotEmpty()) {
+        if (emOutrasFaturas.isNotEmpty()) {
             item {
-                Secao("Cobrados no cartão", subtitulo = "Já estão somados na fatura. Marque quando conferir a cobrança.") {
-                    noCartao.forEachIndexed { i, comp ->
+                Secao("No cartão, em faturas de outros meses", subtitulo = "São deste mês, mas a cobrança cai numa fatura que vence em outro mês") {
+                    emOutrasFaturas.forEachIndexed { i, comp ->
                         if (i > 0) HorizontalDivider()
                         val cartao = e.cartoes.firstOrNull { it.id == comp.cartaoId }
                         val mesFatura = cartao?.let { CicloCartao.mesDaFatura(it, comp.dataCobranca) }
-                        Row(Modifier.fillMaxWidth().clickable { editando = comp }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = comp.pago, enabled = !e.fechado,
-                                onCheckedChange = { marcar ->
-                                    if (marcar) vm.executar { marcarPago(comp.id) } else vm.executar { desmarcarPago(comp.id) }
-                                },
-                                modifier = Modifier.semantics { contentDescription = "Conferido: ${comp.nome}" },
-                            )
+                        Row(Modifier.fillMaxWidth().clickable(enabled = !e.fechado) { editando = comp }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(comp.nome, style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    "Fatura ${cartao?.nome ?: ""}" + (mesFatura?.let { " de ${Datas.formatarMesCurto(it)}" } ?: ""),
+                                    "Fatura ${cartao?.nome ?: ""}" + (mesFatura?.let { " de ${Datas.formatarMesCurto(it)}" } ?: "") +
+                                        if (comp.pago) " · pago" else "",
                                     style = MaterialTheme.typography.bodySmall, color = Cores.neutra(),
                                 )
                             }
@@ -161,6 +182,92 @@ fun TelaContas(e: EstadoMes, vm: PrincipalViewModel) {
         // Usa a versão mais recente da fatura (o estado pode ter mudado com o diálogo aberto)
         val atual = e.resumo.contas.itens.firstOrNull { it.fatura?.cartao?.id == f.cartao.id }?.fatura ?: f
         DialogFatura(e, vm, atual) { faturaAberta = null }
+    }
+}
+
+/** Fatura com os itens dela recolhidos. Pagar a fatura paga os itens; cada item pode ser marcado sozinho. */
+@Composable
+private fun LinhaFatura(
+    item: ItemConta,
+    f: FaturaCalculada,
+    fechado: Boolean,
+    expandida: Boolean,
+    aoExpandir: () -> Unit,
+    aoAlternarFatura: (Boolean) -> Unit,
+    aoAlternarItem: (Compromisso, Boolean) -> Unit,
+    aoEditarItem: (Compromisso) -> Unit,
+    aoDetalhes: () -> Unit,
+) {
+    val nItens = f.compromissos.size
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().clickable(onClick = aoExpandir).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = item.situacao == Situacao.PAGO,
+                onCheckedChange = aoAlternarFatura,
+                enabled = !fechado,
+                modifier = Modifier.semantics { contentDescription = "Pago: ${item.nome}" },
+            )
+            Column(Modifier.weight(1f)) {
+                Text(item.nome, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.vencimento?.let { "Vence ${Datas.formatarDiaMes(it)}" } ?: "Sem vencimento",
+                        style = MaterialTheme.typography.bodySmall, color = Cores.neutra())
+                    Spacer(Modifier.width(6.dp))
+                    EtiquetaSituacao(item.situacao)
+                }
+                val resumoItens = buildList {
+                    if (nItens > 0) add("${f.compromissosPagos} de $nItens contas pagas")
+                    if (f.compras.isNotEmpty()) add("${f.compras.size} compra(s)")
+                }.joinToString(" · ")
+                if (resumoItens.isNotEmpty()) Text(resumoItens, style = MaterialTheme.typography.bodySmall, color = Cores.neutra())
+            }
+            Text(item.valor.formatar(), fontWeight = FontWeight.SemiBold)
+            Icon(
+                if (expandida) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expandida) "Recolher itens da fatura" else "Mostrar itens da fatura",
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+
+        if (expandida) {
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, bottom = 4.dp)) {
+                f.compromissos.forEach { comp ->
+                    Row(Modifier.fillMaxWidth().clickable(enabled = !fechado) { aoEditarItem(comp) }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = comp.pago,
+                            onCheckedChange = { aoAlternarItem(comp, it) },
+                            enabled = !fechado,
+                            modifier = Modifier.semantics { contentDescription = "Pago: ${comp.nome}" },
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(comp.nome, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "Cobrança ${Datas.formatarDiaMes(comp.dataCobranca)}" + if (comp.pago) " · pago" else "",
+                                style = MaterialTheme.typography.bodySmall, color = Cores.neutra(),
+                            )
+                        }
+                        Text(comp.valorEfetivo.formatar(), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                if (f.compras.isNotEmpty()) {
+                    Rotulo("Compras registradas no cartão")
+                    f.compras.forEach { l ->
+                        Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp, bottom = 2.dp)) {
+                            Text("${Datas.formatarDiaMes(l.data)}  ${l.descricao}", Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(l.valor.formatar(), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                if (!f.ajuste.ehZero) {
+                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp)) {
+                        Text("Ajuste", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        Text(f.ajuste.formatar(), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                TextButton(onClick = aoDetalhes) { Text("Detalhes, ajuste e valor pago") }
+            }
+        }
     }
 }
 
