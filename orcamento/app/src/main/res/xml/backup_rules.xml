@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup automático do Android (Google): inclui o banco de dados do app. -->
+<full-backup-content>
+    <include domain="database" path="." />
+</full-backup-content>
